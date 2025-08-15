@@ -436,7 +436,7 @@ client.on('interactionCreate', async (interaction) => {
         const captchaEmbed = new EmbedBuilder()
             .setTitle('🧭 Navigator\'s Challenge')
             .setDescription(`To navigate the treacherous Grand Line, you must prove your mathematical prowess! Log Pose calculations require precision.\n\n**Navigation Calculation:**\n**${captcha.question} = ?**\n\nSelect the correct answer from the course options below. A skilled navigator never guesses blindly!`)
-            .setColor(0x0F172A) // Deep sea navigation blue
+            .setColor(0x8B5CF6) // Purple color
             .setFooter({ text: 'You have 5 minutes to complete this navigation test!' })
             .setTimestamp();
 
@@ -525,7 +525,7 @@ client.on('interactionCreate', async (interaction) => {
                 const successEmbed = new EmbedBuilder()
                     .setTitle('⚓ Navigation Successful!')
                     .setDescription('Outstanding seamanship! You\'ve proven your worth as a capable navigator and earned your place among the crew. Your Log Pose is now calibrated - set sail toward adventure!')
-                    .setColor(0x059669) // Emerald sea green
+                    .setColor(0x8B5CF6) // Purple color
                     .setFooter({ text: 'Welcome aboard, fellow adventurer! • This message will vanish like sea mist in 5 minutes' })
                     .setTimestamp();
 
@@ -554,7 +554,7 @@ client.on('interactionCreate', async (interaction) => {
                 const failEmbed = new EmbedBuilder()
                     .setTitle('❌ Navigation Error!')
                     .setDescription('Your calculations were off course! Even the most experienced navigators face magnetic storms that disrupt their Log Pose. Recalibrate your instruments and attempt the navigation test again.')
-                    .setColor(0xDC2626) // Warning red
+                    .setColor(0x8B5CF6) // Purple color
                     .setFooter({ text: 'Every master navigator learned from failed attempts!' })
                     .setTimestamp();
 
@@ -783,15 +783,14 @@ client.on('interactionCreate', async (interaction) => {
             const embed = new EmbedBuilder()
                 .setTitle('🧭 Server Verification Required')
                 .setDescription(`Ahoy there, aspiring seafarer! Welcome to these treacherous yet magnificent waters!\n\n⚓ **This is a verification system** - you must complete this process to access the server.\n\n**Ready to brave the Grand Line?** Prove your worth as a navigator by completing the verification challenge below!\n\n**What awaits verified crew members:**\n🏴‍☠️ Access to all ship channels and hidden coves\n🗺️ Participate in legendary treasure hunts\n🎵 Join voice channels for strategic planning\n💬 React and interact with fellow adventurers\n💎 Share in the spoils of exploration\n${roleDisplayText}**⚓ Navigator\'s Code:** Your verification may be revoked if you remain inactive (no messages, reactions, or voice activity) for more than 30 days. Even the most skilled navigators must chart their course regularly!`)
-                .setColor(0x1E3A8A) // Deep ocean blue
+                .setColor(0x8B5CF6) // Purple color
                 .setFooter({ text: 'Complete verification to gain full server access • Click below to start' })
                 .setTimestamp();
 
             const button = new ButtonBuilder()
                 .setCustomId('verify_button')
-                .setLabel('🔥 VERIFY')
-                .setStyle(ButtonStyle.Danger) // Red button
-                .setEmoji('⚔️');
+                .setLabel('VERIFY')
+                .setStyle(ButtonStyle.Secondary); // Purple/gray button
 
             const row = new ActionRowBuilder().addComponents(button);
 
