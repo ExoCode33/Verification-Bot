@@ -263,15 +263,18 @@ client.once('ready', async () => {
         await initializeDatabase();
         
         // Audit and fix roles for all guilds
-        console.log('Starting role audit for all guilds...');
+        console.log('Starting comprehensive role audit for all guilds...');
         for (const [guildId, guild] of client.guilds.cache) {
             await auditAndFixRoles(guild);
         }
-        console.log('Role audit completed for all guilds.');
+        console.log('🎯 Complete role audit finished for all guilds.');
+        
+        console.log('🌊 Full navigation system online with all features enabled!');
+        console.log('⚓ Monitoring: Member joins, role management, activity tracking, and verification');
         
     } catch (error) {
-        console.error('Failed to initialize database:', error);
-        console.error('Bot will continue but database features may not work');
+        console.error('❌ Failed to initialize bot systems:', error);
+        console.error('Bot will continue but some features may not work properly');
     }
 });
 
@@ -592,8 +595,9 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // Daily cleanup job - remove inactive users
+// Daily navigation privilege review - remove inactive users and restore unverified status
 cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
-    console.log('Running daily navigation privilege review...');
+    console.log('🕛 Running daily navigation privilege review...');
     
     const client_db = await pool.connect();
     try {
@@ -603,6 +607,13 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
             FROM verified_users 
             WHERE last_activity < NOW() - INTERVAL '30 days'
         `);
+
+        if (result.rows.length === 0) {
+            console.log('✅ All verified seafarers remain active. No privilege revocations needed.');
+            return;
+        }
+
+        console.log(`⚠️  Found ${result.rows.length} inactive seafarers. Processing privilege revocations...`);
 
         for (const user of result.rows) {
             try {
@@ -618,7 +629,7 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
                     if (role && member.roles.cache.has(roleId)) {
                         await member.roles.remove(role);
                         rolesRemoved.push(role.name);
-                        console.log(`Removed role "${role.name}" (${roleId}) from inactive user ${user.user_id}`);
+                        console.log(`🔄 Removed role "${role.name}" (${roleId}) from inactive user ${user.user_id}`);
                     }
                 }
                 
@@ -632,17 +643,17 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
                     [user.user_id, user.guild_id]
                 );
                 
-                console.log(`Navigation privileges revoked from inactive seafarer: ${user.user_id} (${rolesRemoved.length} roles removed: ${rolesRemoved.join(', ')}, restored to unverified status)`);
+                console.log(`⚓ Navigation privileges revoked from inactive seafarer: ${user.user_id} (${rolesRemoved.length} roles removed: ${rolesRemoved.join(', ')}, restored to unverified status)`);
                 
             } catch (error) {
-                console.error(`Error revoking navigation privileges from seafarer ${user.user_id}:`, error);
+                console.error(`❌ Error revoking navigation privileges from seafarer ${user.user_id}:`, error);
             }
         }
         
-        console.log(`Navigation review completed. Processed ${result.rows.length} inactive seafarers.`);
+        console.log(`🎯 Navigation review completed. Processed ${result.rows.length} inactive seafarers.`);
         
     } catch (error) {
-        console.error('Error during navigation privilege review:', error);
+        console.error('❌ Error during navigation privilege review:', error);
     } finally {
         client_db.release();
     }
@@ -665,12 +676,52 @@ client.once('ready', async () => {
     }
 });
 
-// Error handling
-client.on('error', console.error);
-
+// Enhanced error handling and process management
 process.on('unhandledRejection', (error) => {
-    console.error('Unhandled promise rejection:', error);
+    console.error('⚠️  Unhandled promise rejection detected:', error);
+    console.error('Bot continuing operation but this should be investigated');
 });
 
-// Start the bot
-client.login(process.env.DISCORD_TOKEN);
+process.on('uncaughtException', (error) => {
+    console.error('🚨 Critical uncaught exception:', error);
+    console.error('Bot may need to restart');
+});
+
+// Graceful shutdown handling
+process.on('SIGINT', async () => {
+    console.log('📡 Received SIGINT signal - beginning graceful shutdown...');
+    try {
+        await pool.end();
+        console.log('🗄️ Database connections closed');
+        client.destroy();
+        console.log('🤖 Discord client disconnected');
+        console.log('⚓ Bot shutdown complete - fair winds and following seas!');
+        process.exit(0);
+    } catch (error) {
+        console.error('❌ Error during shutdown:', error);
+        process.exit(1);
+    }
+});
+
+process.on('SIGTERM', async () => {
+    console.log('📡 Received SIGTERM signal - beginning graceful shutdown...');
+    try {
+        await pool.end();
+        console.log('🗄️ Database connections closed');  
+        client.destroy();
+        console.log('🤖 Discord client disconnected');
+        console.log('⚓ Bot shutdown complete - fair winds and following seas!');
+        process.exit(0);
+    } catch (error) {
+        console.error('❌ Error during shutdown:', error);
+        process.exit(1);
+    }
+});
+
+// Start the bot with enhanced error handling
+console.log('🌊 Initializing One Piece Navigator Bot...');
+client.login(process.env.DISCORD_TOKEN).catch(error => {
+    console.error('🚨 Failed to login to Discord:', error);
+    console.error('Please check your DISCORD_TOKEN environment variable');
+    process.exit(1);
+});
