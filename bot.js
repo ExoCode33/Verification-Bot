@@ -372,7 +372,7 @@ client.on('guildMemberAdd', async (member) => {
     // Skip bots
     if (member.user.bot) return;
     
-    console.log(`New member joined: ${member.user.tag} in ${member.guild.name}`);
+    console.log(`👋 [MEMBER JOIN] ${member.user.tag} (${member.user.id}) joined ${member.guild.name}`);
     
     // Check if they're already verified (in case of rejoin)
     const alreadyVerified = await isUserVerified(member.user.id, member.guild.id);
@@ -380,21 +380,26 @@ client.on('guildMemberAdd', async (member) => {
     if (alreadyVerified) {
         // Give them back their verified roles
         const verifiedRoleIds = getVerifiedRoleIds();
+        let rolesRestored = [];
         for (const roleId of verifiedRoleIds) {
             const role = member.guild.roles.cache.get(roleId);
             if (role) {
                 await member.roles.add(role);
-                console.log(`Restored verified role "${role.name}" to returning member ${member.user.tag}`);
+                rolesRestored.push(`"${role.name}" (${role.id})`);
+                console.log(`🔄 [ROLE RESTORED] Added verified role "${role.name}" to returning member ${member.user.tag}`);
             }
         }
         
         // Update their activity timestamp
         await updateUserActivity(member.user.id, member.guild.id);
+        
+        console.log(`✅ [REJOIN VERIFIED] Returning verified member ${member.user.tag} received roles: ${rolesRestored.join(', ')}`);
+        console.log(`📊 [ACTIVITY UPDATE] Updated last activity timestamp for ${member.user.tag}`);
     } else {
         // Give them unverified role and add to database
         await giveUnverifiedRole(member);
         await addUnverifiedUser(member.user.id, member.guild.id);
-        console.log(`Added unverified role to new member: ${member.user.tag}`);
+        console.log(`🔒 [NEW UNVERIFIED] Added unverified role and database entry for new member: ${member.user.tag}`);
     }
 });
 client.on('interactionCreate', async (interaction) => {
@@ -404,9 +409,12 @@ client.on('interactionCreate', async (interaction) => {
         const userId = interaction.user.id;
         const guildId = interaction.guild.id;
 
+        console.log(`🧭 [VERIFICATION ATTEMPT] ${interaction.user.tag} (${userId}) started verification process in ${interaction.guild.name}`);
+
         // Check if already verified
         const alreadyVerified = await isUserVerified(userId, guildId);
         if (alreadyVerified) {
+            console.log(`⚠️ [ALREADY VERIFIED] ${interaction.user.tag} (${userId}) attempted verification but is already verified`);
             return interaction.reply({
                 content: '🧭 You\'ve already proven your worth as a navigator! No need to chart the same course twice.',
                 ephemeral: true
@@ -416,6 +424,8 @@ client.on('interactionCreate', async (interaction) => {
         // Generate captcha with multiple choice answers
         const captcha = generateCaptchaWithChoices();
         
+        console.log(`🔢 [CAPTCHA GENERATED] Question: ${captcha.question} = ${captcha.correctAnswer} for user ${interaction.user.tag}`);
+        
         // Store pending verification
         const client_db = await pool.connect();
         try {
@@ -423,8 +433,10 @@ client.on('interactionCreate', async (interaction) => {
                 'INSERT INTO pending_verifications (user_id, guild_id, captcha_answer) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET captcha_answer = $3, created_at = CURRENT_TIMESTAMP',
                 [userId, guildId, captcha.correctAnswer.toString()]
             );
+            
+            console.log(`📝 [PENDING VERIFICATION] Stored pending verification for ${interaction.user.tag} (${userId})`);
         } catch (error) {
-            console.error('Error storing pending verification:', error);
+            console.error(`❌ [ERROR] Failed to store pending verification for ${interaction.user.tag}:`, error);
             return interaction.reply({
                 content: '❌ An error occurred. Please try again.',
                 ephemeral: true
@@ -478,6 +490,8 @@ client.on('interactionCreate', async (interaction) => {
         const guildId = interaction.guild.id;
         const selectedAnswer = interaction.customId.replace('captcha_answer_', '');
 
+        console.log(`🎯 [CAPTCHA ATTEMPT] ${interaction.user.tag} (${userId}) selected answer: ${selectedAnswer}`);
+
         // Check if user has pending verification
         const client_db = await pool.connect();
         try {
@@ -487,6 +501,7 @@ client.on('interactionCreate', async (interaction) => {
             );
 
             if (result.rows.length === 0) {
+                console.log(`⚠️ [NO PENDING] ${interaction.user.tag} (${userId}) attempted to answer captcha but no pending verification found`);
                 return interaction.reply({
                     content: '❌ No pending verification found. Please start the verification process again.',
                     ephemeral: true
@@ -494,8 +509,11 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             const pendingVerification = result.rows[0];
+            const correctAnswer = pendingVerification.captcha_answer;
 
-            if (selectedAnswer === pendingVerification.captcha_answer) {
+            if (selectedAnswer === correctAnswer) {
+                console.log(`✅ [VERIFICATION SUCCESS] ${interaction.user.tag} (${userId}) answered correctly (${selectedAnswer} = ${correctAnswer})`);
+                
                 // Correct answer - verify user
                 await client_db.query('BEGIN');
                 
@@ -527,13 +545,18 @@ client.on('interactionCreate', async (interaction) => {
                 
                 // Add all verified roles
                 const verifiedRoleIds = getVerifiedRoleIds();
+                let rolesAdded = [];
                 for (const roleId of verifiedRoleIds) {
                     const role = interaction.guild.roles.cache.get(roleId);
                     if (role) {
                         await member.roles.add(role);
-                        console.log(`Added verified role "${role.name}" to user ${userId}`);
+                        rolesAdded.push(`"${role.name}" (${role.id})`);
+                        console.log(`🎖️ [ROLE ADDED] Added verified role "${role.name}" to ${interaction.user.tag}`);
                     }
                 }
+
+                console.log(`🎉 [VERIFICATION COMPLETE] ${interaction.user.tag} (${userId}) successfully verified and received roles: ${rolesAdded.join(', ')}`);
+                console.log(`📊 [DATABASE UPDATE] Added ${interaction.user.tag} to verified_users, removed from unverified_users and pending_verifications`);
 
                 const successEmbed = new EmbedBuilder()
                     .setTitle('⚓ Navigation Successful!')
@@ -551,18 +574,23 @@ client.on('interactionCreate', async (interaction) => {
                 setTimeout(async () => {
                     try {
                         await response.delete();
+                        console.log(`🗑️ [MESSAGE CLEANUP] Deleted success message for ${interaction.user.tag}`);
                     } catch (error) {
                         // Message might already be deleted, ignore error
-                        console.log('Success message already deleted or expired');
+                        console.log(`🗑️ [MESSAGE CLEANUP] Success message for ${interaction.user.tag} already deleted or expired`);
                     }
                 }, 5 * 60 * 1000); // 5 minutes
                 
             } else {
+                console.log(`❌ [VERIFICATION FAILED] ${interaction.user.tag} (${userId}) answered incorrectly (selected: ${selectedAnswer}, correct: ${correctAnswer})`);
+                
                 // Wrong answer
                 await client_db.query(
                     'DELETE FROM pending_verifications WHERE user_id = $1 AND guild_id = $2',
                     [userId, guildId]
                 );
+
+                console.log(`🧹 [CLEANUP] Removed pending verification for ${interaction.user.tag} after incorrect answer`);
 
                 const failEmbed = new EmbedBuilder()
                     .setTitle('❌ Navigation Error!')
@@ -577,7 +605,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
         } catch (error) {
-            console.error('Error handling captcha answer:', error);
+            console.error(`❌ [CRITICAL ERROR] Error handling captcha answer for ${interaction.user.tag}:`, error);
             await client_db.query('ROLLBACK');
             
             return interaction.reply({
@@ -590,7 +618,86 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
-// Handle messages - only update activity for verified users
+// Handle role updates - detect manual role assignments by admins/moderators
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+    // Skip bots
+    if (newMember.user.bot) return;
+    
+    const userId = newMember.user.id;
+    const guildId = newMember.guild.id;
+    const verifiedRoleIds = getVerifiedRoleIds();
+    
+    // Check if any verified roles were added or removed
+    const oldVerifiedRoles = oldMember.roles.cache.filter(role => verifiedRoleIds.includes(role.id));
+    const newVerifiedRoles = newMember.roles.cache.filter(role => verifiedRoleIds.includes(role.id));
+    
+    const addedVerifiedRoles = newVerifiedRoles.filter(role => !oldVerifiedRoles.has(role.id));
+    const removedVerifiedRoles = oldVerifiedRoles.filter(role => !newVerifiedRoles.has(role.id));
+    
+    // Check current verification status in database
+    const currentlyVerified = await isUserVerified(userId, guildId);
+    
+    // If verified roles were added and user is not in database
+    if (addedVerifiedRoles.size > 0 && !currentlyVerified) {
+        console.log(`🔧 [MANUAL VERIFICATION] Admin/Moderator manually added verified role(s) to ${newMember.user.tag} (${userId})`);
+        console.log(`📋 [ROLE LOG] Added roles: ${addedVerifiedRoles.map(r => `"${r.name}" (${r.id})`).join(', ')}`);
+        
+        // Add to verified users database
+        const client_db = await pool.connect();
+        try {
+            await client_db.query(
+                'INSERT INTO verified_users (user_id, guild_id) VALUES ($1, $2) ON CONFLICT (user_id, guild_id) DO UPDATE SET last_activity = CURRENT_TIMESTAMP',
+                [userId, guildId]
+            );
+            
+            // Remove from unverified database if present
+            await client_db.query(
+                'DELETE FROM unverified_users WHERE user_id = $1 AND guild_id = $2',
+                [userId, guildId]
+            );
+            
+            // Remove unverified role if they have it
+            await removeUnverifiedRole(newMember);
+            
+            console.log(`✅ [DATABASE UPDATE] Successfully added ${newMember.user.tag} to verified users database`);
+            console.log(`🔄 [ROLE CLEANUP] Removed unverified role and database entry for ${newMember.user.tag}`);
+            
+        } catch (error) {
+            console.error(`❌ [ERROR] Failed to update database for manually verified user ${userId}:`, error);
+        } finally {
+            client_db.release();
+        }
+    }
+    
+    // If all verified roles were removed and user is in database
+    if (newVerifiedRoles.size === 0 && removedVerifiedRoles.size > 0 && currentlyVerified) {
+        console.log(`🔧 [MANUAL UNVERIFICATION] Admin/Moderator manually removed verified role(s) from ${newMember.user.tag} (${userId})`);
+        console.log(`📋 [ROLE LOG] Removed roles: ${removedVerifiedRoles.map(r => `"${r.name}" (${r.id})`).join(', ')}`);
+        
+        // Remove from verified users database
+        const client_db = await pool.connect();
+        try {
+            await client_db.query(
+                'DELETE FROM verified_users WHERE user_id = $1 AND guild_id = $2',
+                [userId, guildId]
+            );
+            
+            // Add back to unverified database and give unverified role
+            await addUnverifiedUser(userId, guildId);
+            await giveUnverifiedRole(newMember);
+            
+            console.log(`✅ [DATABASE UPDATE] Successfully removed ${newMember.user.tag} from verified users database`);
+            console.log(`🔄 [ROLE RESTORATION] Added unverified role and database entry for ${newMember.user.tag}`);
+            
+        } catch (error) {
+            console.error(`❌ [ERROR] Failed to update database for manually unverified user ${userId}:`, error);
+        } finally {
+            client_db.release();
+        }
+    }
+});
+
+// Enhanced logging for verification button interactions
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
@@ -614,6 +721,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         const verified = await isUserVerified(userId, guildId);
         if (verified) {
             await updateUserActivity(userId, guildId);
+            console.log(`🎤 [VOICE ACTIVITY] ${newState.member.user.tag} joined voice channel "${newState.channel.name}" - activity updated`);
         }
     }
 });
@@ -629,6 +737,11 @@ client.on('messageReactionAdd', async (reaction, user) => {
     const verified = await isUserVerified(userId, guildId);
     if (verified) {
         await updateUserActivity(userId, guildId);
+        // Only log reaction activity updates every 5 minutes to avoid spam
+        if (!lastActivityLog.has(`${userId}_reaction`) || Date.now() - lastActivityLog.get(`${userId}_reaction`) > 5 * 60 * 1000) {
+            console.log(`👍 [REACTION ACTIVITY] ${user.tag} added reaction - activity updated`);
+            lastActivityLog.set(`${userId}_reaction`, Date.now());
+        }
     }
 });
 
