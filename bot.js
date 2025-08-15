@@ -511,21 +511,34 @@ client.on('interactionCreate', async (interaction) => {
                     [userId, guildId]
                 );
                 
+                // Remove from unverified users
+                await client_db.query(
+                    'DELETE FROM unverified_users WHERE user_id = $1 AND guild_id = $2',
+                    [userId, guildId]
+                );
+                
                 await client_db.query('COMMIT');
 
-                // Add verified role
-                const verifiedRoleName = process.env.VERIFIED_ROLE_NAME || 'Verified';
-                const role = interaction.guild.roles.cache.find(r => r.name === verifiedRoleName);
+                // Add verified roles and remove unverified role
+                const member = await interaction.guild.members.fetch(userId);
                 
-                if (role) {
-                    const member = await interaction.guild.members.fetch(userId);
-                    await member.roles.add(role);
+                // Remove unverified role
+                await removeUnverifiedRole(member);
+                
+                // Add all verified roles
+                const verifiedRoleIds = getVerifiedRoleIds();
+                for (const roleId of verifiedRoleIds) {
+                    const role = interaction.guild.roles.cache.get(roleId);
+                    if (role) {
+                        await member.roles.add(role);
+                        console.log(`Added verified role "${role.name}" to user ${userId}`);
+                    }
                 }
 
                 const successEmbed = new EmbedBuilder()
                     .setTitle('⚓ Navigation Successful!')
                     .setDescription('Outstanding seamanship! You\'ve proven your worth as a capable navigator and earned your place among the crew. Your Log Pose is now calibrated - set sail toward adventure!')
-                    .setColor(0x8B5CF6) // Purple color
+                    .setColor(0x00FF00) // Bright green color
                     .setFooter({ text: 'Welcome aboard, fellow adventurer! • This message will vanish like sea mist in 5 minutes' })
                     .setTimestamp();
 
@@ -554,7 +567,7 @@ client.on('interactionCreate', async (interaction) => {
                 const failEmbed = new EmbedBuilder()
                     .setTitle('❌ Navigation Error!')
                     .setDescription('Your calculations were off course! Even the most experienced navigators face magnetic storms that disrupt their Log Pose. Recalibrate your instruments and attempt the navigation test again.')
-                    .setColor(0x8B5CF6) // Purple color
+                    .setColor(0xFF0000) // Red color
                     .setFooter({ text: 'Every master navigator learned from failed attempts!' })
                     .setTimestamp();
 
@@ -588,20 +601,6 @@ client.on('messageCreate', async (message) => {
     const verified = await isUserVerified(userId, guildId);
     if (verified) {
         await updateUserActivity(userId, guildId);
-    }
-});
-
-// Handle voice state updates
-client.on('voiceStateUpdate', async (oldState, newState) => {
-    const userId = newState.member.user.id;
-    const guildId = newState.guild.id;
-
-    // Only update activity if user joined a voice channel
-    if (!oldState.channel && newState.channel) {
-        const verified = await isUserVerified(userId, guildId);
-        if (verified) {
-            await updateUserActivity(userId, guildId);
-        }
     }
 });
 
@@ -789,8 +788,8 @@ client.on('interactionCreate', async (interaction) => {
 
             const button = new ButtonBuilder()
                 .setCustomId('verify_button')
-                .setLabel('VERIFY')
-                .setStyle(ButtonStyle.Secondary); // Purple/gray button
+                .setLabel('🧭 Begin Navigation Test')
+                .setStyle(ButtonStyle.Success); // Green button
 
             const row = new ActionRowBuilder().addComponents(button);
 
