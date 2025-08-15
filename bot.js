@@ -141,7 +141,7 @@ async function isUserVerified(userId, guildId) {
 }
 
 client.once('ready', async () => {
-    console.log(`Bot is ready! Logged in as ${client.user.tag}`);
+    console.log(`Ahoy! The navigation system is ready to test new seafarers! Logged in as ${client.user.tag}`);
     await initializeDatabase();
 });
 
@@ -157,7 +157,7 @@ client.on('interactionCreate', async (interaction) => {
         const alreadyVerified = await isUserVerified(userId, guildId);
         if (alreadyVerified) {
             return interaction.reply({
-                content: '✅ You are already verified!',
+                content: '🧭 You\'ve already proven your worth as a navigator! No need to chart the same course twice.',
                 ephemeral: true
             });
         }
@@ -183,10 +183,10 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const captchaEmbed = new EmbedBuilder()
-            .setTitle('🔐 Verification Required')
-            .setDescription(`Please solve this math problem to verify:\n\n**${captcha.question} = ?**\n\nSelect the correct answer from the buttons below.`)
-            .setColor(0x3498db)
-            .setFooter({ text: 'You have 5 minutes to complete this verification.' })
+            .setTitle('🧭 Navigator\'s Challenge')
+            .setDescription(`To navigate the treacherous Grand Line, you must prove your mathematical prowess! Log Pose calculations require precision.\n\n**Navigation Calculation:**\n**${captcha.question} = ?**\n\nSelect the correct answer from the course options below. A skilled navigator never guesses blindly!`)
+            .setColor(0x0F172A) // Deep sea navigation blue
+            .setFooter({ text: 'You have 5 minutes to complete this navigation test!' })
             .setTimestamp();
 
         // Create answer buttons
@@ -272,15 +272,26 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 const successEmbed = new EmbedBuilder()
-                    .setTitle('✅ Verification Successful!')
-                    .setDescription('You have been verified and granted access to the server.')
-                    .setColor(0x27ae60)
+                    .setTitle('⚓ Navigation Successful!')
+                    .setDescription('Outstanding seamanship! You\'ve proven your worth as a capable navigator and earned your place among the crew. Your Log Pose is now calibrated - set sail toward adventure!')
+                    .setColor(0x059669) // Emerald sea green
+                    .setFooter({ text: 'Welcome aboard, fellow adventurer! • This message will vanish like sea mist in 5 minutes' })
                     .setTimestamp();
 
-                await interaction.update({
+                const response = await interaction.update({
                     embeds: [successEmbed],
                     components: []
                 });
+
+                // Delete success message after 5 minutes
+                setTimeout(async () => {
+                    try {
+                        await response.delete();
+                    } catch (error) {
+                        // Message might already be deleted, ignore error
+                        console.log('Success message already deleted or expired');
+                    }
+                }, 5 * 60 * 1000); // 5 minutes
                 
             } else {
                 // Wrong answer
@@ -290,9 +301,10 @@ client.on('interactionCreate', async (interaction) => {
                 );
 
                 const failEmbed = new EmbedBuilder()
-                    .setTitle('❌ Incorrect Answer')
-                    .setDescription('That\'s not the correct answer. Please click the verify button to try again with a new question.')
-                    .setColor(0xe74c3c)
+                    .setTitle('❌ Navigation Error!')
+                    .setDescription('Your calculations were off course! Even the most experienced navigators face magnetic storms that disrupt their Log Pose. Recalibrate your instruments and attempt the navigation test again.')
+                    .setColor(0xDC2626) // Warning red
+                    .setFooter({ text: 'Every master navigator learned from failed attempts!' })
                     .setTimestamp();
 
                 await interaction.update({
@@ -304,8 +316,8 @@ client.on('interactionCreate', async (interaction) => {
             console.error('Error handling captcha answer:', error);
             await client_db.query('ROLLBACK');
             
-            await interaction.reply({
-                content: '❌ An error occurred. Please try again.',
+            return interaction.reply({
+                content: '❌ A magnetic storm disrupted your verification process. Please attempt the navigation test again.',
                 ephemeral: true
             });
         } finally {
@@ -359,26 +371,27 @@ client.on('messageReactionAdd', async (reaction, user) => {
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
-    if (interaction.commandName === 'setup-verification') {
+    if (interaction.commandName === 'setup-navigator-test') {
         // Check permissions
         if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
             return interaction.reply({
-                content: '❌ You need "Manage Server" permission to use this command.',
+                content: '❌ You need "Manage Server" permission to establish the navigator testing system.',
                 ephemeral: true
             });
         }
 
         const embed = new EmbedBuilder()
-            .setTitle('🛡️ Server Verification')
-            .setDescription('Welcome to our server! To gain access to all channels and features, please click the button below to verify your account.\n\n**What happens when you verify:**\n• Access to all server channels\n• Ability to participate in discussions\n• Join voice channels\n• React to messages\n\n**Please note:** Your verification may be removed if you remain inactive (no messages, reactions, or voice activity) for more than 30 days.')
-            .setColor(0x2c3e50)
-            .setFooter({ text: 'Click the button below to start verification' })
+            .setTitle('🧭 Chart Your Course to Adventure!')
+            .setDescription('Ahoy there, aspiring seafarer! Welcome to these treacherous yet magnificent waters!\n\n🌊 **Ready to brave the Grand Line?** Prove your worth as a navigator by completing the challenge below!\n\n**What awaits worthy crew members:**\n⚓ Access to all ship channels and hidden coves\n🗺️ Participate in legendary treasure hunts\n🎵 Join voice channels for strategic planning\n🏴‍☠️ React and interact with fellow adventurers\n💎 Share in the spoils of exploration\n\n**⚠️ Navigator\'s Code:** Your passage may be revoked if you remain inactive (no messages, reactions, or voice activity) for more than 30 days. Even the most skilled navigators must chart their course regularly!')
+            .setColor(0x1E3A8A) // Deep ocean blue
+            .setFooter({ text: 'Every great adventure begins with courage • Click below to start your journey' })
             .setTimestamp();
 
         const button = new ButtonBuilder()
             .setCustomId('verify_button')
-            .setLabel('🔐 Verify Account')
-            .setStyle(ButtonStyle.Primary);
+            .setLabel('🧭 Begin Navigation Test')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('⚓');
 
         const row = new ActionRowBuilder().addComponents(button);
 
@@ -391,7 +404,7 @@ client.on('interactionCreate', async (interaction) => {
 
 // Daily cleanup job - remove inactive users
 cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
-    console.log('Running daily cleanup...');
+    console.log('Running daily navigation privilege review...');
     
     const client_db = await pool.connect();
     try {
@@ -408,7 +421,7 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
                 const member = await guild.members.fetch(user.user_id);
                 
                 // Remove verified role
-                const verifiedRoleName = process.env.VERIFIED_ROLE_NAME || 'Verified';
+                const verifiedRoleName = process.env.VERIFIED_ROLE_NAME || 'Navigator';
                 const role = guild.roles.cache.find(r => r.name === verifiedRoleName);
                 
                 if (role && member.roles.cache.has(role.id)) {
@@ -421,17 +434,17 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
                     [user.user_id, user.guild_id]
                 );
                 
-                console.log(`Removed verification from inactive user: ${user.user_id}`);
+                console.log(`Navigation privileges revoked from inactive seafarer: ${user.user_id}`);
                 
             } catch (error) {
-                console.error(`Error removing verification from user ${user.user_id}:`, error);
+                console.error(`Error revoking navigation privileges from seafarer ${user.user_id}:`, error);
             }
         }
         
-        console.log(`Cleanup completed. Processed ${result.rows.length} inactive users.`);
+        console.log(`Navigation review completed. Processed ${result.rows.length} inactive seafarers.`);
         
     } catch (error) {
-        console.error('Error during cleanup:', error);
+        console.error('Error during navigation privilege review:', error);
     } finally {
         client_db.release();
     }
@@ -441,8 +454,8 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
 client.once('ready', async () => {
     const commands = [
         {
-            name: 'setup-verification',
-            description: 'Set up the verification message in this channel'
+            name: 'setup-navigator-test',
+            description: 'Establish the navigator testing system for new seafarers in this channel'
         }
     ];
 
