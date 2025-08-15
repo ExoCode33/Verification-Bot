@@ -23,16 +23,23 @@ See full deployment guide in the project files.
 
 ## 🧭 Bot Features
 
+### Automatic Role Management
+- **New members** automatically receive the unverified role
+- **Upon verification** unverified role is removed and verified roles are assigned
+- **After 30 days of inactivity** verified roles are removed and unverified role is restored
+- **Bot startup** audits all members and fixes any missing role assignments
+
 ### Navigator's Challenge
 - Users click "🧭 Begin Navigation Test" button
 - Solve Log Pose calculation challenges to prove navigation skills
 - 5 clickable answer buttons (no typing needed)
 - Success messages auto-delete after 5 minutes like sea mist
 
-### Seafarer Activity Tracking
-- Monitors messages, reactions, and voice channel joins
-- Updates last activity for verified navigators
-- Automatic cleanup removes inactive seafarers after 30 days
+### Complete Database Tracking
+- Tracks verified users with activity timestamps
+- Tracks unverified users for role management
+- Handles member joins/leaves with automatic cleanup
+- Persistent state across bot restarts
 
 ### One Piece World Theming
 - Authentic terminology: Grand Line, Log Pose, Sea Kings, navigation
@@ -45,10 +52,15 @@ See full deployment guide in the project files.
 DISCORD_TOKEN=your_bot_token
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 VERIFIED_ROLE_IDS=1234567890123456789,9876543210987654321,1111222233334444555
+UNVERIFIED_ROLE_ID=9999888877776666555
 NODE_ENV=production
 ```
 
-**Note**: `VERIFIED_ROLE_IDS` accepts multiple Discord role IDs separated by commas. All specified roles will be assigned upon verification and removed after 30 days of inactivity.
+**Note**: 
+- `VERIFIED_ROLE_IDS` accepts multiple Discord role IDs separated by commas
+- `UNVERIFIED_ROLE_ID` is the single role given to all new members until they verify
+- All verified roles are assigned upon verification and removed after 30 days of inactivity
+- Unverified role is automatically managed (added to new members, removed when verified, restored when verification expires)
 
 ## Bot Permissions Required
 
