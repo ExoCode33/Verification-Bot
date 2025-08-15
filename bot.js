@@ -14,6 +14,11 @@ function getVerifiedRoleIds() {
     return rolesEnv.split(',').map(id => id.trim()).filter(id => id.length > 0);
 }
 
+// Get unverified role ID from environment variable
+function getUnverifiedRoleId() {
+    return process.env.UNVERIFIED_ROLE_ID || '';
+}
+
 // Initialize database
 async function initializeDatabase() {
     const client = await pool.connect();
@@ -35,8 +40,17 @@ async function initializeDatabase() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             
+            CREATE TABLE IF NOT EXISTS unverified_users (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(20) NOT NULL,
+                guild_id VARCHAR(20) NOT NULL,
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, guild_id)
+            );
+            
             CREATE INDEX IF NOT EXISTS idx_user_guild ON verified_users(user_id, guild_id);
             CREATE INDEX IF NOT EXISTS idx_pending_user ON pending_verifications(user_id);
+            CREATE INDEX IF NOT EXISTS idx_unverified_user_guild ON unverified_users(user_id, guild_id);
         `);
         console.log('Database initialized successfully');
     } catch (error) {
@@ -114,7 +128,67 @@ function generateCaptchaWithChoices() {
     return { question, correctAnswer, choices };
 }
 
-// Update user activity
+// Add user to unverified database
+async function addUnverifiedUser(userId, guildId) {
+    const client = await pool.connect();
+    try {
+        await client.query(
+            'INSERT INTO unverified_users (user_id, guild_id) VALUES ($1, $2) ON CONFLICT (user_id, guild_id) DO NOTHING',
+            [userId, guildId]
+        );
+    } catch (error) {
+        console.error('Error adding unverified user:', error);
+    } finally {
+        client.release();
+    }
+}
+
+// Remove user from unverified database
+async function removeUnverifiedUser(userId, guildId) {
+    const client = await pool.connect();
+    try {
+        await client.query(
+            'DELETE FROM unverified_users WHERE user_id = $1 AND guild_id = $2',
+            [userId, guildId]
+        );
+    } catch (error) {
+        console.error('Error removing unverified user:', error);
+    } finally {
+        client.release();
+    }
+}
+
+// Give unverified role to user
+async function giveUnverifiedRole(member) {
+    const unverifiedRoleId = getUnverifiedRoleId();
+    if (!unverifiedRoleId) return;
+
+    try {
+        const role = member.guild.roles.cache.get(unverifiedRoleId);
+        if (role && !member.roles.cache.has(unverifiedRoleId)) {
+            await member.roles.add(role);
+            console.log(`Added unverified role "${role.name}" to user ${member.user.id}`);
+        }
+    } catch (error) {
+        console.error(`Error adding unverified role to user ${member.user.id}:`, error);
+    }
+}
+
+// Remove unverified role from user
+async function removeUnverifiedRole(member) {
+    const unverifiedRoleId = getUnverifiedRoleId();
+    if (!unverifiedRoleId) return;
+
+    try {
+        const role = member.guild.roles.cache.get(unverifiedRoleId);
+        if (role && member.roles.cache.has(unverifiedRoleId)) {
+            await member.roles.remove(role);
+            console.log(`Removed unverified role "${role.name}" from user ${member.user.id}`);
+        }
+    } catch (error) {
+        console.error(`Error removing unverified role from user ${member.user.id}:`, error);
+    }
+}
 async function updateUserActivity(userId, guildId) {
     const client = await pool.connect();
     try {
@@ -149,9 +223,45 @@ async function isUserVerified(userId, guildId) {
 client.once('ready', async () => {
     console.log(`Ahoy! The navigation system is ready to test new seafarers! Logged in as ${client.user.tag}`);
     await initializeDatabase();
+    
+    // Audit and fix roles for all guilds
+    console.log('Starting role audit for all guilds...');
+    for (const [guildId, guild] of client.guilds.cache) {
+        await auditAndFixRoles(guild);
+    }
+    console.log('Role audit completed for all guilds.');
 });
 
-// Handle verification button click
+// Handle new member joins
+client.on('guildMemberAdd', async (member) => {
+    // Skip bots
+    if (member.user.bot) return;
+    
+    console.log(`New member joined: ${member.user.tag} in ${member.guild.name}`);
+    
+    // Check if they're already verified (in case of rejoin)
+    const alreadyVerified = await isUserVerified(member.user.id, member.guild.id);
+    
+    if (alreadyVerified) {
+        // Give them back their verified roles
+        const verifiedRoleIds = getVerifiedRoleIds();
+        for (const roleId of verifiedRoleIds) {
+            const role = member.guild.roles.cache.get(roleId);
+            if (role) {
+                await member.roles.add(role);
+                console.log(`Restored verified role "${role.name}" to returning member ${member.user.tag}`);
+            }
+        }
+        
+        // Update their activity timestamp
+        await updateUserActivity(member.user.id, member.guild.id);
+    } else {
+        // Give them unverified role and add to database
+        await giveUnverifiedRole(member);
+        await addUnverifiedUser(member.user.id, member.guild.id);
+        console.log(`Added unverified role to new member: ${member.user.tag}`);
+    }
+});
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
 
@@ -441,7 +551,7 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
                 const guild = await client.guilds.fetch(user.guild_id);
                 const member = await guild.members.fetch(user.user_id);
                 
-                // Remove all verified roles
+                // Remove all verified roles and restore unverified role
                 const verifiedRoleIds = getVerifiedRoleIds();
                 let rolesRemoved = [];
                 
@@ -454,13 +564,17 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
                     }
                 }
                 
-                // Remove from database
+                // Give them back unverified role
+                await giveUnverifiedRole(member);
+                await addUnverifiedUser(user.user_id, user.guild_id);
+                
+                // Remove from verified database
                 await client_db.query(
                     'DELETE FROM verified_users WHERE user_id = $1 AND guild_id = $2',
                     [user.user_id, user.guild_id]
                 );
                 
-                console.log(`Navigation privileges revoked from inactive seafarer: ${user.user_id} (${rolesRemoved.length} roles removed: ${rolesRemoved.join(', ')})`);
+                console.log(`Navigation privileges revoked from inactive seafarer: ${user.user_id} (${rolesRemoved.length} roles removed: ${rolesRemoved.join(', ')}, restored to unverified status)`);
                 
             } catch (error) {
                 console.error(`Error revoking navigation privileges from seafarer ${user.user_id}:`, error);
