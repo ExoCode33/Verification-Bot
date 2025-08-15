@@ -25,6 +25,90 @@ function getUnverifiedRoleId() {
     return process.env.UNVERIFIED_ROLE_ID || '';
 }
 
+// Check and fix role assignments for all members
+async function auditAndFixRoles(guild) {
+    console.log(`Starting role audit for guild: ${guild.name}`);
+    
+    try {
+        const members = await guild.members.fetch();
+        const client_db = await pool.connect();
+        
+        try {
+            // Get all verified users for this guild
+            const verifiedResult = await client_db.query(
+                'SELECT user_id FROM verified_users WHERE guild_id = $1',
+                [guild.id]
+            );
+            const verifiedUserIds = new Set(verifiedResult.rows.map(row => row.user_id));
+            
+            // Get all unverified users for this guild  
+            const unverifiedResult = await client_db.query(
+                'SELECT user_id FROM unverified_users WHERE guild_id = $1',
+                [guild.id]
+            );
+            const unverifiedUserIds = new Set(unverifiedResult.rows.map(row => row.user_id));
+            
+            let fixedCount = 0;
+            
+            for (const [userId, member] of members) {
+                // Skip bots
+                if (member.user.bot) continue;
+                
+                const isVerified = verifiedUserIds.has(userId);
+                const isInUnverifiedDB = unverifiedUserIds.has(userId);
+                
+                if (isVerified) {
+                    // User should have verified roles and no unverified role
+                    await removeUnverifiedRole(member);
+                    
+                    // Ensure they have all verified roles
+                    const verifiedRoleIds = getVerifiedRoleIds();
+                    for (const roleId of verifiedRoleIds) {
+                        const role = guild.roles.cache.get(roleId);
+                        if (role && !member.roles.cache.has(roleId)) {
+                            await member.roles.add(role);
+                            console.log(`Fixed: Added missing verified role "${role.name}" to ${member.user.tag}`);
+                            fixedCount++;
+                        }
+                    }
+                    
+                    // Remove from unverified database if present
+                    if (isInUnverifiedDB) {
+                        await removeUnverifiedUser(userId, guild.id);
+                    }
+                } else {
+                    // User should have unverified role and no verified roles
+                    await giveUnverifiedRole(member);
+                    
+                    // Add to unverified database if not present
+                    if (!isInUnverifiedDB) {
+                        await addUnverifiedUser(userId, guild.id);
+                        fixedCount++;
+                    }
+                    
+                    // Remove any verified roles they shouldn't have
+                    const verifiedRoleIds = getVerifiedRoleIds();
+                    for (const roleId of verifiedRoleIds) {
+                        if (member.roles.cache.has(roleId)) {
+                            const role = guild.roles.cache.get(roleId);
+                            await member.roles.remove(role);
+                            console.log(`Fixed: Removed incorrect verified role "${role?.name}" from ${member.user.tag}`);
+                            fixedCount++;
+                        }
+                    }
+                }
+            }
+            
+            console.log(`Role audit completed for ${guild.name}. Fixed ${fixedCount} role assignments.`);
+            
+        } finally {
+            client_db.release();
+        }
+    } catch (error) {
+        console.error(`Error during role audit for guild ${guild.name}:`, error);
+    }
+}
+
 // Initialize database with retry logic
 async function initializeDatabase() {
     let retries = 5;
