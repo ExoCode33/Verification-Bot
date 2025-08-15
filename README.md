@@ -53,12 +53,14 @@ DISCORD_TOKEN=your_bot_token
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 VERIFIED_ROLE_IDS=1234567890123456789,9876543210987654321,1111222233334444555
 UNVERIFIED_ROLE_ID=9999888877776666555
+VERIFICATION_CHANNEL_ID=1234567890123456789
 NODE_ENV=production
 ```
 
 **Note**: 
 - `VERIFIED_ROLE_IDS` accepts multiple Discord role IDs separated by commas
 - `UNVERIFIED_ROLE_ID` is the single role given to all new members until they verify
+- `VERIFICATION_CHANNEL_ID` is where the bot will post verification messages when using `/setup-navigator-test`
 - All verified roles are assigned upon verification and removed after 30 days of inactivity
 - Unverified role is automatically managed (added to new members, removed when verified, restored when verification expires)
 
