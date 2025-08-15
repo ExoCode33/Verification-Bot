@@ -52,32 +52,60 @@ const client = new Client({
     ]
 });
 
-// Generate simple math captcha
-function generateCaptcha() {
+// Generate math captcha with multiple choice answers
+function generateCaptchaWithChoices() {
     const num1 = Math.floor(Math.random() * 10) + 1;
     const num2 = Math.floor(Math.random() * 10) + 1;
     const operations = ['+', '-', '*'];
     const operation = operations[Math.floor(Math.random() * operations.length)];
     
-    let answer;
+    let correctAnswer;
     let question;
     
     switch (operation) {
         case '+':
-            answer = num1 + num2;
+            correctAnswer = num1 + num2;
             question = `${num1} + ${num2}`;
             break;
         case '-':
-            answer = Math.max(num1, num2) - Math.min(num1, num2);
+            correctAnswer = Math.max(num1, num2) - Math.min(num1, num2);
             question = `${Math.max(num1, num2)} - ${Math.min(num1, num2)}`;
             break;
         case '*':
-            answer = num1 * num2;
+            correctAnswer = num1 * num2;
             question = `${num1} × ${num2}`;
             break;
     }
     
-    return { question, answer: answer.toString() };
+    // Generate 4 wrong answers that are close to the correct answer
+    const wrongAnswers = new Set();
+    while (wrongAnswers.size < 4) {
+        let wrongAnswer;
+        const variation = Math.floor(Math.random() * 6) + 1; // 1-6 difference
+        const isHigher = Math.random() > 0.5;
+        
+        if (isHigher) {
+            wrongAnswer = correctAnswer + variation;
+        } else {
+            wrongAnswer = Math.max(1, correctAnswer - variation); // Ensure positive
+        }
+        
+        // Don't add the correct answer as a wrong answer
+        if (wrongAnswer !== correctAnswer && wrongAnswer > 0) {
+            wrongAnswers.add(wrongAnswer);
+        }
+    }
+    
+    // Create array of all choices and shuffle
+    const choices = [correctAnswer, ...Array.from(wrongAnswers)];
+    
+    // Fisher-Yates shuffle
+    for (let i = choices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [choices[i], choices[j]] = [choices[j], choices[i]];
+    }
+    
+    return { question, correctAnswer, choices };
 }
 
 // Update user activity
@@ -134,15 +162,15 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        // Generate captcha
-        const captcha = generateCaptcha();
+        // Generate captcha with multiple choice answers
+        const captcha = generateCaptchaWithChoices();
         
         // Store pending verification
         const client_db = await pool.connect();
         try {
             await client_db.query(
                 'INSERT INTO pending_verifications (user_id, guild_id, captcha_answer) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET captcha_answer = $3, created_at = CURRENT_TIMESTAMP',
-                [userId, guildId, captcha.answer]
+                [userId, guildId, captcha.correctAnswer.toString()]
             );
         } catch (error) {
             console.error('Error storing pending verification:', error);
@@ -156,13 +184,24 @@ client.on('interactionCreate', async (interaction) => {
 
         const captchaEmbed = new EmbedBuilder()
             .setTitle('🔐 Verification Required')
-            .setDescription(`Please solve this math problem to verify:\n\n**${captcha.question} = ?**\n\nType your answer in this channel.`)
+            .setDescription(`Please solve this math problem to verify:\n\n**${captcha.question} = ?**\n\nSelect the correct answer from the buttons below.`)
             .setColor(0x3498db)
             .setFooter({ text: 'You have 5 minutes to complete this verification.' })
             .setTimestamp();
 
+        // Create answer buttons
+        const buttons = captcha.choices.map((choice, index) => 
+            new ButtonBuilder()
+                .setCustomId(`captcha_answer_${choice}`)
+                .setLabel(choice.toString())
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        const row = new ActionRowBuilder().addComponents(buttons);
+
         await interaction.reply({
             embeds: [captchaEmbed],
+            components: [row],
             ephemeral: true
         });
 
@@ -181,9 +220,101 @@ client.on('interactionCreate', async (interaction) => {
             }
         }, 5 * 60 * 1000); // 5 minutes
     }
+
+    // Handle captcha answer buttons
+    if (interaction.customId.startsWith('captcha_answer_')) {
+        const userId = interaction.user.id;
+        const guildId = interaction.guild.id;
+        const selectedAnswer = interaction.customId.replace('captcha_answer_', '');
+
+        // Check if user has pending verification
+        const client_db = await pool.connect();
+        try {
+            const result = await client_db.query(
+                'SELECT * FROM pending_verifications WHERE user_id = $1 AND guild_id = $2',
+                [userId, guildId]
+            );
+
+            if (result.rows.length === 0) {
+                return interaction.reply({
+                    content: '❌ No pending verification found. Please start the verification process again.',
+                    ephemeral: true
+                });
+            }
+
+            const pendingVerification = result.rows[0];
+
+            if (selectedAnswer === pendingVerification.captcha_answer) {
+                // Correct answer - verify user
+                await client_db.query('BEGIN');
+                
+                // Add to verified users
+                await client_db.query(
+                    'INSERT INTO verified_users (user_id, guild_id) VALUES ($1, $2)',
+                    [userId, guildId]
+                );
+                
+                // Remove from pending
+                await client_db.query(
+                    'DELETE FROM pending_verifications WHERE user_id = $1 AND guild_id = $2',
+                    [userId, guildId]
+                );
+                
+                await client_db.query('COMMIT');
+
+                // Add verified role
+                const verifiedRoleName = process.env.VERIFIED_ROLE_NAME || 'Verified';
+                const role = interaction.guild.roles.cache.find(r => r.name === verifiedRoleName);
+                
+                if (role) {
+                    const member = await interaction.guild.members.fetch(userId);
+                    await member.roles.add(role);
+                }
+
+                const successEmbed = new EmbedBuilder()
+                    .setTitle('✅ Verification Successful!')
+                    .setDescription('You have been verified and granted access to the server.')
+                    .setColor(0x27ae60)
+                    .setTimestamp();
+
+                await interaction.update({
+                    embeds: [successEmbed],
+                    components: []
+                });
+                
+            } else {
+                // Wrong answer
+                await client_db.query(
+                    'DELETE FROM pending_verifications WHERE user_id = $1 AND guild_id = $2',
+                    [userId, guildId]
+                );
+
+                const failEmbed = new EmbedBuilder()
+                    .setTitle('❌ Incorrect Answer')
+                    .setDescription('That\'s not the correct answer. Please click the verify button to try again with a new question.')
+                    .setColor(0xe74c3c)
+                    .setTimestamp();
+
+                await interaction.update({
+                    embeds: [failEmbed],
+                    components: []
+                });
+            }
+        } catch (error) {
+            console.error('Error handling captcha answer:', error);
+            await client_db.query('ROLLBACK');
+            
+            await interaction.reply({
+                content: '❌ An error occurred. Please try again.',
+                ephemeral: true
+            });
+        } finally {
+            client_db.release();
+        }
+    }
 });
 
-// Handle captcha answers
+// Handle messages - only update activity for verified users
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
@@ -194,77 +325,6 @@ client.on('messageCreate', async (message) => {
     const verified = await isUserVerified(userId, guildId);
     if (verified) {
         await updateUserActivity(userId, guildId);
-        return;
-    }
-
-    // Check if user has pending verification
-    const client_db = await pool.connect();
-    try {
-        const result = await client_db.query(
-            'SELECT * FROM pending_verifications WHERE user_id = $1 AND guild_id = $2',
-            [userId, guildId]
-        );
-
-        if (result.rows.length === 0) return;
-
-        const pendingVerification = result.rows[0];
-        const userAnswer = message.content.trim();
-
-        if (userAnswer === pendingVerification.captcha_answer) {
-            // Correct answer - verify user
-            await client_db.query('BEGIN');
-            
-            // Add to verified users
-            await client_db.query(
-                'INSERT INTO verified_users (user_id, guild_id) VALUES ($1, $2)',
-                [userId, guildId]
-            );
-            
-            // Remove from pending
-            await client_db.query(
-                'DELETE FROM pending_verifications WHERE user_id = $1 AND guild_id = $2',
-                [userId, guildId]
-            );
-            
-            await client_db.query('COMMIT');
-
-            // Add verified role
-            const verifiedRoleName = process.env.VERIFIED_ROLE_NAME || 'Verified';
-            const role = message.guild.roles.cache.find(r => r.name === verifiedRoleName);
-            
-            if (role) {
-                const member = await message.guild.members.fetch(userId);
-                await member.roles.add(role);
-            }
-
-            const successEmbed = new EmbedBuilder()
-                .setTitle('✅ Verification Successful!')
-                .setDescription('You have been verified and granted access to the server.')
-                .setColor(0x27ae60)
-                .setTimestamp();
-
-            await message.reply({ embeds: [successEmbed] });
-            
-            // Delete the user's answer message for cleanliness
-            setTimeout(() => message.delete().catch(() => {}), 3000);
-            
-        } else {
-            await message.reply({
-                content: '❌ Incorrect answer. Please click the verify button to try again.',
-                ephemeral: true
-            });
-            
-            // Remove incorrect attempt
-            await client_db.query(
-                'DELETE FROM pending_verifications WHERE user_id = $1 AND guild_id = $2',
-                [userId, guildId]
-            );
-        }
-    } catch (error) {
-        console.error('Error handling captcha answer:', error);
-        await client_db.query('ROLLBACK');
-    } finally {
-        client_db.release();
     }
 });
 
