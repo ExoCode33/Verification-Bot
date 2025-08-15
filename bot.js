@@ -96,15 +96,13 @@ async function initializeDatabase() {
     }
 }
 
-// Discord bot setup
+// Discord bot setup with minimal intents (no privileged intents required)
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildVoiceStates,
-        GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.GuildMessageReactions
+        // Removed GuildMembers and MessageContent for now - these require privileged intents
     ]
 });
 
@@ -258,14 +256,17 @@ async function isUserVerified(userId, guildId) {
 
 client.once('ready', async () => {
     console.log(`Ahoy! The navigation system is ready to test new seafarers! Logged in as ${client.user.tag}`);
-    await initializeDatabase();
     
-    // Audit and fix roles for all guilds
-    console.log('Starting role audit for all guilds...');
-    for (const [guildId, guild] of client.guilds.cache) {
-        await auditAndFixRoles(guild);
+    try {
+        await initializeDatabase();
+        console.log('Bot initialization completed successfully!');
+    } catch (error) {
+        console.error('Failed to initialize database:', error);
+        console.error('Bot will continue but database features may not work');
     }
-    console.log('Role audit completed for all guilds.');
+    
+    // Note: Role audit and member join detection disabled until privileged intents are enabled
+    console.log('⚠️  NOTICE: Some features disabled - enable SERVER MEMBERS INTENT in Discord Developer Portal for full functionality');
 });
 
 // Handle new member joins
@@ -506,16 +507,22 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// Handle reactions (update activity)
+// Handle reactions (simplified - may not work without MESSAGE CONTENT INTENT)
 client.on('messageReactionAdd', async (reaction, user) => {
     if (user.bot) return;
     
-    const userId = user.id;
-    const guildId = reaction.message.guild.id;
-    
-    const verified = await isUserVerified(userId, guildId);
-    if (verified) {
-        await updateUserActivity(userId, guildId);
+    try {
+        const userId = user.id;
+        const guildId = reaction.message.guild?.id;
+        if (!guildId) return;
+        
+        const verified = await isUserVerified(userId, guildId);
+        if (verified) {
+            await updateUserActivity(userId, guildId);
+        }
+    } catch (error) {
+        // Silently fail if we don't have proper intents
+        console.log('Reaction tracking limited without MESSAGE CONTENT INTENT');
     }
 });
 
