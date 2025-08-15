@@ -25,6 +25,11 @@ function getUnverifiedRoleId() {
     return process.env.UNVERIFIED_ROLE_ID || '';
 }
 
+// Get verification channel ID from environment variable
+function getVerificationChannelId() {
+    return process.env.VERIFICATION_CHANNEL_ID || '';
+}
+
 // Check and fix role assignments for all members
 async function auditAndFixRoles(guild) {
     console.log(`Starting role audit for guild: ${guild.name}`);
@@ -632,49 +637,183 @@ client.on('messageReactionAdd', async (reaction, user) => {
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
-    if (interaction.commandName === 'setup-navigator-test') {
-        // Check permissions
-        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    if (interaction.commandName === 'force-inactivity-check') {
+        // Check permissions - Admin only
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({
-                content: '❌ You need "Manage Server" permission to establish the navigator testing system.',
+                content: '❌ You need **Administrator** permission to force inactivity checks.',
                 ephemeral: true
             });
         }
 
-        // Get role names for display in embed
-        const verifiedRoleIds = getVerifiedRoleIds();
-        let roleDisplayNames = [];
-        
-        for (const roleId of verifiedRoleIds) {
-            const role = interaction.guild.roles.cache.get(roleId);
-            if (role) {
-                roleDisplayNames.push(role.name);
-            }
-        }
-        
-        const roleDisplayText = roleDisplayNames.length > 0 
-            ? `🎖️ Receive verified roles: **${roleDisplayNames.join(', ')}**\n\n`
-            : '';
-
-        const embed = new EmbedBuilder()
-            .setTitle('🧭 Server Verification Required')
-            .setDescription(`Ahoy there, aspiring seafarer! Welcome to these treacherous yet magnificent waters!\n\n⚓ **This is a verification system** - you must complete this process to access the server.\n\n**Ready to brave the Grand Line?** Prove your worth as a navigator by completing the verification challenge below!\n\n**What awaits verified crew members:**\n🏴‍☠️ Access to all ship channels and hidden coves\n🗺️ Participate in legendary treasure hunts\n🎵 Join voice channels for strategic planning\n💬 React and interact with fellow adventurers\n💎 Share in the spoils of exploration\n${roleDisplayText}**⚓ Navigator\'s Code:** Your verification may be revoked if you remain inactive (no messages, reactions, or voice activity) for more than 30 days. Even the most skilled navigators must chart their course regularly!`)
-            .setColor(0x1E3A8A) // Deep ocean blue
-            .setFooter({ text: 'Complete verification to gain full server access • Click below to start' })
-            .setTimestamp();
-
-        const button = new ButtonBuilder()
-            .setCustomId('verify_button')
-            .setLabel('🔥 VERIFY')
-            .setStyle(ButtonStyle.Danger) // Red button
-            .setEmoji('⚔️');
-
-        const row = new ActionRowBuilder().addComponents(button);
-
         await interaction.reply({
-            embeds: [embed],
-            components: [row]
+            content: '🕛 Starting manual inactivity check... This may take a moment.',
+            ephemeral: true
         });
+
+        try {
+            console.log('🔧 Manual inactivity check triggered by admin');
+            
+            const client_db = await pool.connect();
+            try {
+                // For testing, you can adjust this query to check shorter periods
+                // Change '30 days' to '1 minute' for immediate testing
+                const result = await client_db.query(`
+                    SELECT user_id, guild_id, last_activity
+                    FROM verified_users 
+                    WHERE guild_id = $1 AND last_activity < NOW() - INTERVAL '30 days'
+                `, [interaction.guild.id]);
+
+                if (result.rows.length === 0) {
+                    await interaction.followUp({
+                        content: '✅ No inactive users found. All verified seafarers remain active!',
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                console.log(`⚠️ Manual check found ${result.rows.length} inactive users in ${interaction.guild.name}`);
+
+                let processedCount = 0;
+                for (const user of result.rows) {
+                    try {
+                        const member = await interaction.guild.members.fetch(user.user_id);
+                        
+                        // Remove all verified roles and restore unverified role
+                        const verifiedRoleIds = getVerifiedRoleIds();
+                        let rolesRemoved = [];
+                        
+                        for (const roleId of verifiedRoleIds) {
+                            const role = interaction.guild.roles.cache.get(roleId);
+                            if (role && member.roles.cache.has(roleId)) {
+                                await member.roles.remove(role);
+                                rolesRemoved.push(role.name);
+                            }
+                        }
+                        
+                        // Give them back unverified role
+                        await giveUnverifiedRole(member);
+                        await addUnverifiedUser(user.user_id, user.guild_id);
+                        
+                        // Remove from verified database
+                        await client_db.query(
+                            'DELETE FROM verified_users WHERE user_id = $1 AND guild_id = $2',
+                            [user.user_id, user.guild_id]
+                        );
+                        
+                        processedCount++;
+                        console.log(`🔄 Manually revoked privileges from: ${member.user.tag} (inactive since ${user.last_activity})`);
+                        
+                    } catch (error) {
+                        console.error(`❌ Error processing user ${user.user_id}:`, error);
+                    }
+                }
+                
+                await interaction.followUp({
+                    content: `🎯 Manual inactivity check completed!\n📊 Processed **${processedCount}** inactive users\n⚓ Removed verification and restored unverified status`,
+                    ephemeral: true
+                });
+                
+            } finally {
+                client_db.release();
+            }
+            
+        } catch (error) {
+            console.error('Error during manual inactivity check:', error);
+            await interaction.followUp({
+                content: '❌ An error occurred during the inactivity check. Please check the logs.',
+                ephemeral: true
+            });
+        }
+    }
+
+    if (interaction.commandName === 'setup-navigator-test') {
+        // Check permissions - Admin only
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return interaction.reply({
+                content: '❌ You need **Administrator** permission to set up the navigator testing system.',
+                ephemeral: true
+            });
+        }
+
+        // Get verification channel ID from environment variable
+        const verificationChannelId = getVerificationChannelId();
+        
+        if (!verificationChannelId) {
+            return interaction.reply({
+                content: '❌ No verification channel configured. Please set `VERIFICATION_CHANNEL_ID` in environment variables.',
+                ephemeral: true
+            });
+        }
+
+        // Get the verification channel
+        const verificationChannel = interaction.guild.channels.cache.get(verificationChannelId);
+        
+        if (!verificationChannel) {
+            return interaction.reply({
+                content: `❌ Verification channel not found. Please check that channel ID \`${verificationChannelId}\` exists in this server.`,
+                ephemeral: true
+            });
+        }
+
+        // Check if bot can send messages in verification channel
+        if (!verificationChannel.permissionsFor(interaction.guild.members.me).has([PermissionFlagsBits.SendMessages, PermissionFlagsBits.ViewChannel])) {
+            return interaction.reply({
+                content: `❌ I don't have permission to send messages in ${verificationChannel}. Please check my permissions.`,
+                ephemeral: true
+            });
+        }
+
+        try {
+            // Get role names for display in embed
+            const verifiedRoleIds = getVerifiedRoleIds();
+            let roleDisplayNames = [];
+            
+            for (const roleId of verifiedRoleIds) {
+                const role = interaction.guild.roles.cache.get(roleId);
+                if (role) {
+                    roleDisplayNames.push(role.name);
+                }
+            }
+            
+            const roleDisplayText = roleDisplayNames.length > 0 
+                ? `🎖️ Receive verified roles: **${roleDisplayNames.join(', ')}**\n\n`
+                : '';
+
+            const embed = new EmbedBuilder()
+                .setTitle('🧭 Server Verification Required')
+                .setDescription(`Ahoy there, aspiring seafarer! Welcome to these treacherous yet magnificent waters!\n\n⚓ **This is a verification system** - you must complete this process to access the server.\n\n**Ready to brave the Grand Line?** Prove your worth as a navigator by completing the verification challenge below!\n\n**What awaits verified crew members:**\n🏴‍☠️ Access to all ship channels and hidden coves\n🗺️ Participate in legendary treasure hunts\n🎵 Join voice channels for strategic planning\n💬 React and interact with fellow adventurers\n💎 Share in the spoils of exploration\n${roleDisplayText}**⚓ Navigator\'s Code:** Your verification may be revoked if you remain inactive (no messages, reactions, or voice activity) for more than 30 days. Even the most skilled navigators must chart their course regularly!`)
+                .setColor(0x1E3A8A) // Deep ocean blue
+                .setFooter({ text: 'Complete verification to gain full server access • Click below to start' })
+                .setTimestamp();
+
+            const button = new ButtonBuilder()
+                .setCustomId('verify_button')
+                .setLabel('🔥 VERIFY')
+                .setStyle(ButtonStyle.Danger) // Red button
+                .setEmoji('⚔️');
+
+            const row = new ActionRowBuilder().addComponents(button);
+
+            // Send to verification channel
+            await verificationChannel.send({
+                embeds: [embed],
+                components: [row]
+            });
+
+            // Confirm to admin
+            await interaction.reply({
+                content: `✅ Verification message posted successfully in ${verificationChannel}!`,
+                ephemeral: true
+            });
+
+        } catch (error) {
+            console.error('Error setting up verification:', error);
+            await interaction.reply({
+                content: '❌ An error occurred while setting up verification. Please check the logs.',
+                ephemeral: true
+            });
+        }
     }
 });
 
@@ -748,7 +887,13 @@ client.once('ready', async () => {
     const commands = [
         {
             name: 'setup-navigator-test',
-            description: 'Establish the navigator testing system for new seafarers in this channel'
+            description: 'Establish the navigator testing system in the designated verification channel (Admin Only)',
+            default_member_permissions: '8' // Administrator permission bitfield
+        },
+        {
+            name: 'force-inactivity-check',
+            description: 'Manually trigger the 30-day inactivity cleanup (Admin Only)',
+            default_member_permissions: '8' // Administrator permission bitfield
         }
     ];
 
