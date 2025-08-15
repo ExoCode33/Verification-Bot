@@ -2,10 +2,16 @@ const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder
 const { Pool } = require('pg');
 const cron = require('node-cron');
 
-// Database setup
+// Database setup with Railway-specific configuration
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    ssl: process.env.NODE_ENV === 'production' ? { 
+        rejectUnauthorized: false 
+    } : false,
+    // Railway specific configurations
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
 });
 
 // Parse verified roles from environment variable (using role IDs)
@@ -19,44 +25,74 @@ function getUnverifiedRoleId() {
     return process.env.UNVERIFIED_ROLE_ID || '';
 }
 
-// Initialize database
+// Initialize database with retry logic
 async function initializeDatabase() {
-    const client = await pool.connect();
-    try {
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS verified_users (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(20) UNIQUE NOT NULL,
-                guild_id VARCHAR(20) NOT NULL,
-                verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
+    let retries = 5;
+    
+    while (retries > 0) {
+        try {
+            console.log('Attempting to connect to PostgreSQL database...');
+            const client = await pool.connect();
             
-            CREATE TABLE IF NOT EXISTS pending_verifications (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(20) UNIQUE NOT NULL,
-                guild_id VARCHAR(20) NOT NULL,
-                captcha_answer VARCHAR(10) NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
+            try {
+                // Test connection
+                await client.query('SELECT NOW()');
+                console.log('✅ Database connection successful!');
+                
+                // Create tables
+                await client.query(`
+                    CREATE TABLE IF NOT EXISTS verified_users (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(20) UNIQUE NOT NULL,
+                        guild_id VARCHAR(20) NOT NULL,
+                        verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    
+                    CREATE TABLE IF NOT EXISTS pending_verifications (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(20) UNIQUE NOT NULL,
+                        guild_id VARCHAR(20) NOT NULL,
+                        captcha_answer VARCHAR(10) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    
+                    CREATE TABLE IF NOT EXISTS unverified_users (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(20) NOT NULL,
+                        guild_id VARCHAR(20) NOT NULL,
+                        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, guild_id)
+                    );
+                    
+                    CREATE INDEX IF NOT EXISTS idx_user_guild ON verified_users(user_id, guild_id);
+                    CREATE INDEX IF NOT EXISTS idx_pending_user ON pending_verifications(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_unverified_user_guild ON unverified_users(user_id, guild_id);
+                `);
+                
+                console.log('✅ Database tables created/verified successfully');
+                return; // Success, exit the retry loop
+                
+            } finally {
+                client.release();
+            }
             
-            CREATE TABLE IF NOT EXISTS unverified_users (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(20) NOT NULL,
-                guild_id VARCHAR(20) NOT NULL,
-                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(user_id, guild_id)
-            );
+        } catch (error) {
+            retries--;
+            console.error(`❌ Database connection failed. Retries left: ${retries}`);
+            console.error('Error details:', error.message);
             
-            CREATE INDEX IF NOT EXISTS idx_user_guild ON verified_users(user_id, guild_id);
-            CREATE INDEX IF NOT EXISTS idx_pending_user ON pending_verifications(user_id);
-            CREATE INDEX IF NOT EXISTS idx_unverified_user_guild ON unverified_users(user_id, guild_id);
-        `);
-        console.log('Database initialized successfully');
-    } catch (error) {
-        console.error('Database initialization error:', error);
-    } finally {
-        client.release();
+            if (retries === 0) {
+                console.error('🚨 CRITICAL: Could not connect to PostgreSQL after 5 attempts');
+                console.error('Please check your DATABASE_URL environment variable');
+                console.error('Make sure PostgreSQL service is running on Railway');
+                throw error;
+            }
+            
+            // Wait before retrying
+            console.log('⏳ Waiting 5 seconds before retry...');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        }
     }
 }
 
