@@ -96,13 +96,15 @@ async function initializeDatabase() {
     }
 }
 
-// Discord bot setup with minimal intents (no privileged intents required)
+// Discord bot setup with full intents
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMessageReactions
-        // Removed GuildMembers and MessageContent for now - these require privileged intents
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.MessageContent
     ]
 });
 
@@ -259,14 +261,18 @@ client.once('ready', async () => {
     
     try {
         await initializeDatabase();
-        console.log('Bot initialization completed successfully!');
+        
+        // Audit and fix roles for all guilds
+        console.log('Starting role audit for all guilds...');
+        for (const [guildId, guild] of client.guilds.cache) {
+            await auditAndFixRoles(guild);
+        }
+        console.log('Role audit completed for all guilds.');
+        
     } catch (error) {
         console.error('Failed to initialize database:', error);
         console.error('Bot will continue but database features may not work');
     }
-    
-    // Note: Role audit and member join detection disabled until privileged intents are enabled
-    console.log('⚠️  NOTICE: Some features disabled - enable SERVER MEMBERS INTENT in Discord Developer Portal for full functionality');
 });
 
 // Handle new member joins
@@ -507,22 +513,31 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
-// Handle reactions (simplified - may not work without MESSAGE CONTENT INTENT)
-client.on('messageReactionAdd', async (reaction, user) => {
-    if (user.bot) return;
-    
-    try {
-        const userId = user.id;
-        const guildId = reaction.message.guild?.id;
-        if (!guildId) return;
-        
+// Handle voice state updates
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    const userId = newState.member.user.id;
+    const guildId = newState.guild.id;
+
+    // Only update activity if user joined a voice channel
+    if (!oldState.channel && newState.channel) {
         const verified = await isUserVerified(userId, guildId);
         if (verified) {
             await updateUserActivity(userId, guildId);
         }
-    } catch (error) {
-        // Silently fail if we don't have proper intents
-        console.log('Reaction tracking limited without MESSAGE CONTENT INTENT');
+    }
+});
+
+// Handle reactions (update activity)
+client.on('messageReactionAdd', async (reaction, user) => {
+    if (user.bot) return;
+    
+    const userId = user.id;
+    const guildId = reaction.message.guild?.id;
+    if (!guildId) return;
+    
+    const verified = await isUserVerified(userId, guildId);
+    if (verified) {
+        await updateUserActivity(userId, guildId);
     }
 });
 
