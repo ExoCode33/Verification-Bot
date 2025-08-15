@@ -44,9 +44,11 @@ See full deployment guide in the project files.
 ```
 DISCORD_TOKEN=your_bot_token
 DATABASE_URL=${{Postgres.DATABASE_URL}}
-VERIFIED_ROLE_NAME=Navigator
+VERIFIED_ROLE_IDS=1234567890123456789,9876543210987654321,1111222233334444555
 NODE_ENV=production
 ```
+
+**Note**: `VERIFIED_ROLE_IDS` accepts multiple Discord role IDs separated by commas. All specified roles will be assigned upon verification and removed after 30 days of inactivity.
 
 ## Bot Permissions Required
 
