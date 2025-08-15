@@ -8,6 +8,12 @@ const pool = new Pool({
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// Parse verified roles from environment variable (using role IDs)
+function getVerifiedRoleIds() {
+    const rolesEnv = process.env.VERIFIED_ROLE_IDS || '';
+    return rolesEnv.split(',').map(id => id.trim()).filter(id => id.length > 0);
+}
+
 // Initialize database
 async function initializeDatabase() {
     const client = await pool.connect();
@@ -380,9 +386,24 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
+        // Get role names for display in embed
+        const verifiedRoleIds = getVerifiedRoleIds();
+        let roleDisplayNames = [];
+        
+        for (const roleId of verifiedRoleIds) {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (role) {
+                roleDisplayNames.push(role.name);
+            }
+        }
+        
+        const roleDisplayText = roleDisplayNames.length > 0 
+            ? `🎖️ Receive verified roles: **${roleDisplayNames.join(', ')}**\n\n`
+            : '';
+
         const embed = new EmbedBuilder()
             .setTitle('🧭 Chart Your Course to Adventure!')
-            .setDescription('Ahoy there, aspiring seafarer! Welcome to these treacherous yet magnificent waters!\n\n🌊 **Ready to brave the Grand Line?** Prove your worth as a navigator by completing the challenge below!\n\n**What awaits worthy crew members:**\n⚓ Access to all ship channels and hidden coves\n🗺️ Participate in legendary treasure hunts\n🎵 Join voice channels for strategic planning\n🏴‍☠️ React and interact with fellow adventurers\n💎 Share in the spoils of exploration\n\n**⚠️ Navigator\'s Code:** Your passage may be revoked if you remain inactive (no messages, reactions, or voice activity) for more than 30 days. Even the most skilled navigators must chart their course regularly!')
+            .setDescription(`Ahoy there, aspiring seafarer! Welcome to these treacherous yet magnificent waters!\n\n🌊 **Ready to brave the Grand Line?** Prove your worth as a navigator by completing the challenge below!\n\n**What awaits worthy crew members:**\n⚓ Access to all ship channels and hidden coves\n🗺️ Participate in legendary treasure hunts\n🎵 Join voice channels for strategic planning\n🏴‍☠️ React and interact with fellow adventurers\n💎 Share in the spoils of exploration\n${roleDisplayText}**⚠️ Navigator\'s Code:** Your passage may be revoked if you remain inactive (no messages, reactions, or voice activity) for more than 30 days. Even the most skilled navigators must chart their course regularly!`)
             .setColor(0x1E3A8A) // Deep ocean blue
             .setFooter({ text: 'Every great adventure begins with courage • Click below to start your journey' })
             .setTimestamp();
@@ -420,12 +441,17 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
                 const guild = await client.guilds.fetch(user.guild_id);
                 const member = await guild.members.fetch(user.user_id);
                 
-                // Remove verified role
-                const verifiedRoleName = process.env.VERIFIED_ROLE_NAME || 'Navigator';
-                const role = guild.roles.cache.find(r => r.name === verifiedRoleName);
+                // Remove all verified roles
+                const verifiedRoleIds = getVerifiedRoleIds();
+                let rolesRemoved = [];
                 
-                if (role && member.roles.cache.has(role.id)) {
-                    await member.roles.remove(role);
+                for (const roleId of verifiedRoleIds) {
+                    const role = guild.roles.cache.get(roleId);
+                    if (role && member.roles.cache.has(roleId)) {
+                        await member.roles.remove(role);
+                        rolesRemoved.push(role.name);
+                        console.log(`Removed role "${role.name}" (${roleId}) from inactive user ${user.user_id}`);
+                    }
                 }
                 
                 // Remove from database
@@ -434,7 +460,7 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
                     [user.user_id, user.guild_id]
                 );
                 
-                console.log(`Navigation privileges revoked from inactive seafarer: ${user.user_id}`);
+                console.log(`Navigation privileges revoked from inactive seafarer: ${user.user_id} (${rolesRemoved.length} roles removed: ${rolesRemoved.join(', ')})`);
                 
             } catch (error) {
                 console.error(`Error revoking navigation privileges from seafarer ${user.user_id}:`, error);
