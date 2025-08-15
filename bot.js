@@ -726,7 +726,7 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    if (interaction.commandName === 'setup-navigator-test') {
+    if (interaction.commandName === 'setup-verification') {
         // Check permissions - Admin only
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({
@@ -788,7 +788,7 @@ client.on('interactionCreate', async (interaction) => {
 
             const button = new ButtonBuilder()
                 .setCustomId('verify_button')
-                .setLabel('🧭 Begin Navigation Test')
+                .setLabel('🧭 Verify')
                 .setStyle(ButtonStyle.Success); // Green button
 
             const row = new ActionRowBuilder().addComponents(button);
@@ -884,7 +884,7 @@ cron.schedule('0 0 * * *', async () => { // Runs at midnight every day
 client.once('ready', async () => {
     const commands = [
         {
-            name: 'setup-navigator-test',
+            name: 'setup-verification',
             description: 'Establish the navigator testing system in the designated verification channel (Admin Only)',
             default_member_permissions: '8' // Administrator permission bitfield
         },
