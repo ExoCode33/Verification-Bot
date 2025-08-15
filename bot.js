@@ -657,17 +657,17 @@ client.on('interactionCreate', async (interaction) => {
             : '';
 
         const embed = new EmbedBuilder()
-            .setTitle('🧭 Chart Your Course to Adventure!')
-            .setDescription(`Ahoy there, aspiring seafarer! Welcome to these treacherous yet magnificent waters!\n\n🌊 **Ready to brave the Grand Line?** Prove your worth as a navigator by completing the challenge below!\n\n**What awaits worthy crew members:**\n⚓ Access to all ship channels and hidden coves\n🗺️ Participate in legendary treasure hunts\n🎵 Join voice channels for strategic planning\n🏴‍☠️ React and interact with fellow adventurers\n💎 Share in the spoils of exploration\n${roleDisplayText}**⚠️ Navigator\'s Code:** Your passage may be revoked if you remain inactive (no messages, reactions, or voice activity) for more than 30 days. Even the most skilled navigators must chart their course regularly!`)
+            .setTitle('🧭 Server Verification Required')
+            .setDescription(`Ahoy there, aspiring seafarer! Welcome to these treacherous yet magnificent waters!\n\n⚓ **This is a verification system** - you must complete this process to access the server.\n\n**Ready to brave the Grand Line?** Prove your worth as a navigator by completing the verification challenge below!\n\n**What awaits verified crew members:**\n🏴‍☠️ Access to all ship channels and hidden coves\n🗺️ Participate in legendary treasure hunts\n🎵 Join voice channels for strategic planning\n💬 React and interact with fellow adventurers\n💎 Share in the spoils of exploration\n${roleDisplayText}**⚓ Navigator\'s Code:** Your verification may be revoked if you remain inactive (no messages, reactions, or voice activity) for more than 30 days. Even the most skilled navigators must chart their course regularly!`)
             .setColor(0x1E3A8A) // Deep ocean blue
-            .setFooter({ text: 'Every great adventure begins with courage • Click below to start your journey' })
+            .setFooter({ text: 'Complete verification to gain full server access • Click below to start' })
             .setTimestamp();
 
         const button = new ButtonBuilder()
             .setCustomId('verify_button')
-            .setLabel('🧭 Begin Navigation Test')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('⚓');
+            .setLabel('🔥 VERIFY')
+            .setStyle(ButtonStyle.Danger) // Red button
+            .setEmoji('⚔️');
 
         const row = new ActionRowBuilder().addComponents(button);
 
