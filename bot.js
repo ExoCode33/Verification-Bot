@@ -197,6 +197,9 @@ const client = new Client({
     ]
 });
 
+// Track last activity log times to prevent spam
+const lastActivityLog = new Map();
+
 // Generate math captcha with multiple choice answers
 function generateCaptchaWithChoices() {
     const num1 = Math.floor(Math.random() * 10) + 1;
